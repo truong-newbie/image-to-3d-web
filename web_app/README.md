@@ -2,7 +2,7 @@
 
 Ứng dụng web tối giản gồm:
 - **Backend (`backend/server.py`)**: FastAPI chạy trên Google Colab (GPU L4), hỗ trợ **1 ảnh** và **nhiều ảnh** (`run_multi_image`), xuất 4 định dạng `.glb`, `.stl` (Z-up), `.obj`, `.ply`, kèm scale kích thước theo `height_mm`.
-- **Frontend (`frontend/`)**: HTML/CSS/JS thuần + `<model-viewer>`, hỗ trợ 2 chế độ nhiều ảnh (**Gộp nhiều góc → 1 mô hình 3D** và **Chuyển hàng loạt → mỗi ảnh 1 file 3D**).
+- **Frontend (`frontend/`)**: HTML/CSS/JS thuần + Three.js Studio, hỗ trợ 2 chế độ nhiều ảnh (**Gộp nhiều góc → 1 mô hình 3D** và **Chuyển hàng loạt → mỗi ảnh 1 file 3D**), chỉnh kích thước, di chuyển, xoay, co giãn, hoàn tác/làm lại và xuất GLB/STL đã sửa.
 
 ## 1. Chạy thử nhanh (Local + Colab L4)
 
@@ -17,7 +17,14 @@
 cd web_app/frontend
 python -m http.server 5500
 ```
-Mở `http://localhost:5500`, dán link API vào ô **Link Colab API** → **Kiểm tra** → chọn 1 hoặc nhiều ảnh → **Process**.
+Mở `http://localhost:5500`, dán link `https://xxxx.trycloudflare.com` **do Cell 3 in ra** vào ô **Link API từ Cell 3** → **Kiểm tra** → chọn 1 hoặc nhiều ảnh → **Process**. Link trang notebook `colab.research.google.com/drive/...` không phải link API. Colab phải đang chạy để tạo mô hình mới; nút **Thử mẫu 3D** và **Mở GLB từ máy** dùng được mà không cần Colab.
+
+### Chỉnh sửa trong Studio
+
+- Chọn **Di chuyển / Xoay / Co giãn**, rồi kéo các trục màu trên mô hình. Dùng **Hoàn tác / Làm lại** hoặc Ctrl+Z / Ctrl+Y.
+- Nhập rộng, cao, sâu theo mm; bật **Giữ tỷ lệ** để đổi đều ba chiều. Mô hình TRELLIS được đặt cao 100 mm lúc mở vì model không biết kích thước thật của vật thể trong ảnh.
+- **Xuất GLB đã sửa** giữ vật liệu và texture, dùng đơn vị mét theo glTF. **Xuất STL đã sửa** dùng mm và trục Z hướng lên để đưa vào phần mềm in 3D. Các nút ở phần **Tải file gốc từ Colab** lấy bản chưa chỉnh.
+- Việc chỉnh sửa diễn ra trong trình duyệt. Hãy xuất file trước khi đóng trang hoặc tạo một mô hình mới.
 
 API nhận tối đa 12 ảnh mỗi mô hình, 10 MB và 20 megapixel mỗi ảnh; tối đa 8 job chờ. Kết quả của job đã hoàn thành được giữ 1 giờ rồi xóa tự động. Nếu muốn kiểm tra riêng API sau khi Cell 3 chạy, dùng `/content/miniconda3/envs/trellis/bin/python /content/TRELLIS/web_app/smoke_test.py --full` ngay trong máy Colab.
 

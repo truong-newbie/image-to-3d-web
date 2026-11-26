@@ -4,7 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TRELLIS — Chuyển Ảnh Sang 3D</title>
-  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
+  <link rel="icon" href="data:," />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+      }
+    }
+  </script>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -22,11 +30,11 @@
 
     <!-- Kết nối Colab Backend -->
     <section class="card server-bar">
-      <label for="apiUrlInput" class="server-label">Link Colab API:</label>
+      <label for="apiUrlInput" class="server-label">Link API từ Cell 3:</label>
       <input
         id="apiUrlInput"
         type="url"
-        placeholder="Dán link từ Colab (vd: https://xxxx.trycloudflare.com)"
+        placeholder="https://xxxx.trycloudflare.com (không phải link notebook)"
         autocomplete="off"
       />
       <button id="checkServerBtn" class="btn btn-secondary" type="button">Kiểm tra</button>
@@ -94,47 +102,61 @@
       <!-- Cột phải: Hiển thị 3D & Tải file -->
       <section class="card panel">
         <div class="viewer-header">
-          <h2 class="panel-title">2. Kết quả 3D &amp; Tải xuống</h2>
+          <h2 class="panel-title">2. Studio 3D</h2>
           <label class="toggle-rotate">
-            <input id="autoRotateToggle" type="checkbox" checked />
+            <input id="autoRotateToggle" type="checkbox" />
             <span>Tự xoay</span>
           </label>
+        </div>
+
+        <div class="studio-start-actions">
+          <input id="openGlbInput" type="file" accept=".glb,model/gltf-binary" hidden />
+          <button id="openGlbBtn" class="btn btn-secondary btn-small" type="button">Mở GLB từ máy</button>
+          <button id="sampleBtn" class="btn btn-ghost btn-small" type="button">Thử mẫu 3D</button>
         </div>
 
         <!-- Danh sách chuyển nhanh các kết quả khi chạy hàng loạt -->
         <div id="batchTabs" class="batch-tabs hidden"></div>
 
+        <div id="studioToolbar" class="studio-toolbar hidden" aria-label="Công cụ chỉnh sửa 3D">
+          <button class="tool-button active" data-tool="translate" type="button">Di chuyển</button>
+          <button class="tool-button" data-tool="rotate" type="button">Xoay</button>
+          <button class="tool-button" data-tool="scale" type="button">Co giãn</button>
+          <button id="undoBtn" class="tool-button" type="button" disabled>Hoàn tác</button>
+          <button id="redoBtn" class="tool-button" type="button" disabled>Làm lại</button>
+          <button id="fitViewBtn" class="tool-button" type="button">Vừa khung</button>
+        </div>
+
         <div class="viewer-wrap">
-          <model-viewer
-            id="modelViewer"
-            auto-rotate
-            camera-controls
-            shadow-intensity="1"
-            exposure="1.0"
-            interaction-prompt="auto"
-          ></model-viewer>
+          <div id="studioCanvas" class="studio-canvas"></div>
           <div id="viewerEmpty" class="viewer-empty">
-            Mô hình 3D sẽ hiển thị tại đây sau khi xử lý xong
+            Tạo mô hình từ ảnh, mở file GLB hoặc bấm “Thử mẫu 3D” để bắt đầu
           </div>
         </div>
+        <p class="studio-hint">Kéo chuột trái để xoay góc nhìn, cuộn để phóng to. Chọn công cụ rồi kéo các trục màu để sửa mô hình.</p>
 
         <div id="resultSection" class="result-section hidden">
           <div id="meshStats" class="mesh-stats"></div>
 
-          <div class="scale-row">
-            <label for="heightMmInput">Chiều cao khi tải (mm):</label>
-            <input
-              id="heightMmInput"
-              type="number"
-              min="0"
-              max="10000"
-              step="1"
-              placeholder="Gốc (không đổi)"
-            />
-            <span id="scaledDimsText" class="scaled-dims"></span>
+          <div class="dimensions-box">
+            <div class="dimensions-heading">Kích thước theo trục vật thể (mm)</div>
+            <div class="dimension-fields">
+              <label>Rộng X <input id="widthMmInput" data-axis="0" type="number" min="0.1" max="10000" step="0.1" /></label>
+              <label>Cao Y <input id="heightMmInput" data-axis="1" type="number" min="0.1" max="10000" step="0.1" /></label>
+              <label>Sâu Z <input id="depthMmInput" data-axis="2" type="number" min="0.1" max="10000" step="0.1" /></label>
+            </div>
+            <label class="lock-ratio"><input id="lockRatioInput" type="checkbox" checked /> Giữ tỷ lệ khi nhập kích thước</label>
+            <p class="dimension-note">Mô hình tạo từ ảnh được đặt cao 100 mm lúc mở; đây là kích thước giả định để bạn chỉnh lại.</p>
           </div>
 
-          <div class="download-grid">
+          <div class="export-actions">
+            <button id="exportGlbBtn" class="btn btn-primary" type="button">Xuất GLB đã sửa</button>
+            <button id="exportStlBtn" class="btn btn-secondary" type="button">Xuất STL đã sửa (mm)</button>
+          </div>
+
+          <div id="originalDownloads" class="original-downloads">
+            <div class="original-heading">Tải file gốc từ Colab</div>
+            <div class="download-grid">
             <button class="btn btn-download" data-fmt="glb" type="button">
               <span class="fmt-name">.GLB</span>
               <span class="fmt-desc">Có màu / Texture</span>
@@ -151,12 +173,13 @@
               <span class="fmt-name">.PLY</span>
               <span class="fmt-desc">3D Gaussian</span>
             </button>
+            </div>
           </div>
         </div>
       </section>
     </main>
   </div>
 
-  <script src="./app.js"></script>
+  <script type="module" src="./app.js"></script>
 </body>
 </html>

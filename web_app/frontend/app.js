@@ -1,3 +1,5 @@
+import { Studio } from "./studio.js";
+
 const STORAGE_KEY = "trellis_api_url";
 const MAX_IMAGES = 12;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -24,13 +26,27 @@ const progressText = document.getElementById("progressText");
 const errorBox = document.getElementById("errorBox");
 
 const batchTabs = document.getElementById("batchTabs");
-const modelViewer = document.getElementById("modelViewer");
+const studioCanvas = document.getElementById("studioCanvas");
 const viewerEmpty = document.getElementById("viewerEmpty");
 const autoRotateToggle = document.getElementById("autoRotateToggle");
 const resultSection = document.getElementById("resultSection");
 const meshStats = document.getElementById("meshStats");
+const studioToolbar = document.getElementById("studioToolbar");
+const toolButtons = document.querySelectorAll("[data-tool]");
+const undoBtn = document.getElementById("undoBtn");
+const redoBtn = document.getElementById("redoBtn");
+const fitViewBtn = document.getElementById("fitViewBtn");
+const openGlbBtn = document.getElementById("openGlbBtn");
+const openGlbInput = document.getElementById("openGlbInput");
+const sampleBtn = document.getElementById("sampleBtn");
+const widthMmInput = document.getElementById("widthMmInput");
 const heightMmInput = document.getElementById("heightMmInput");
-const scaledDimsText = document.getElementById("scaledDimsText");
+const depthMmInput = document.getElementById("depthMmInput");
+const dimensionInputs = [widthMmInput, heightMmInput, depthMmInput];
+const lockRatioInput = document.getElementById("lockRatioInput");
+const exportGlbBtn = document.getElementById("exportGlbBtn");
+const exportStlBtn = document.getElementById("exportStlBtn");
+const originalDownloads = document.getElementById("originalDownloads");
 const downloadBtns = document.querySelectorAll(".btn-download");
 
 let selectedFiles = [];
@@ -38,9 +54,19 @@ let previewUrls = [];
 let batchResults = []; // [{ label, job_id, status, step, extents_xyz, vertices, faces, error }]
 let activeResultIndex = -1;
 let isProcessing = false;
+let selectionToken = 0;
+const studio = new Studio(studioCanvas, updateStudioPanel);
 
 function getApiBase() {
   return apiUrlInput.value.trim().replace(/\/+$/, "");
+}
+
+function isNotebookLink(url) {
+  try {
+    return new URL(url).hostname === "colab.research.google.com";
+  } catch {
+    return false;
+  }
 }
 
 function getSelectedMode() {
@@ -64,7 +90,8 @@ function hideError() {
 }
 
 function updateProcessBtnState() {
-  processBtn.disabled = isProcessing || selectedFiles.length === 0 || !getApiBase();
+  const api = getApiBase();
+  processBtn.disabled = isProcessing || selectedFiles.length === 0 || !api || isNotebookLink(api);
 }
 
 function renderThumbnails() {
@@ -158,6 +185,11 @@ async function checkServer() {
     setStatus("offline", "Chưa nhập link API");
     return false;
   }
+  if (isNotebookLink(api)) {
+    setStatus("offline", "Cần link API từ Cell 3");
+    showError("Hãy chạy Cell 3 trong Colab rồi dán link https://...trycloudflare.com, không dán link trang notebook.");
+    return false;
+  }
   localStorage.setItem(STORAGE_KEY, api);
   setStatus("", "Đang kiểm tra...");
 
@@ -177,21 +209,18 @@ async function checkServer() {
   }
 }
 
-function updateScaledPreview() {
-  const current = batchResults[activeResultIndex];
-  if (!current || !current.extents_xyz) {
-    scaledDimsText.textContent = "";
-    return;
-  }
-  const h = parseFloat(heightMmInput.value);
-  if (!h || h <= 0) {
-    scaledDimsText.textContent = "Đang dùng kích thước gốc";
-    return;
-  }
-  const [x, y, z] = current.extents_xyz;
-  if (y <= 0) return;
-  const scale = h / y;
-  scaledDimsText.textContent = `→ Rộng ${(x * scale).toFixed(1)} × Cao ${h.toFixed(1)} × Sâu ${(z * scale).toFixed(1)} mm`;
+function updateStudioPanel() {
+  const dimensions = studio.getDimensionsMm();
+  studioToolbar.classList.toggle("hidden", !dimensions);
+  if (!dimensions) return;
+  dimensionInputs.forEach((input, axis) => {
+    if (document.activeElement !== input) input.value = dimensions[axis].toFixed(1);
+  });
+  undoBtn.disabled = !studio.canUndo();
+  redoBtn.disabled = !studio.canRedo();
+  toolButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.tool === studio.mode);
+  });
 }
 
 function renderBatchTabs() {
@@ -215,19 +244,79 @@ function renderBatchTabs() {
   });
 }
 
-function selectResult(idx) {
+async function selectResult(idx) {
   const item = batchResults[idx];
   if (!item || item.status !== "done") return;
+  if (activeResultIndex >= 0 && studio.hasModel()) {
+    batchResults[activeResultIndex].editorState = studio.getProjectState();
+  }
   activeResultIndex = idx;
+  const requestId = ++selectionToken;
+  renderBatchTabs();
+  studio.clear();
+  viewerEmpty.textContent = "Đang mở mô hình trong Studio...";
+  viewerEmpty.classList.remove("hidden");
+  resultSection.classList.add("hidden");
 
-  const api = getApiBase();
-  modelViewer.src = `${api}/jobs/${item.job_id}/download/glb`;
+  const api = item.api || getApiBase();
+  try {
+    const loaded = await studio.loadFromUrl(`${api}/jobs/${item.job_id}/download/glb`, {
+      name: item.label,
+      initialHeightMm: 100,
+    });
+    if (!loaded || requestId !== selectionToken) return;
+    if (item.editorState) studio.restoreProjectState(item.editorState);
+    viewerEmpty.classList.add("hidden");
+    resultSection.classList.remove("hidden");
+    originalDownloads.classList.remove("hidden");
+    meshStats.textContent = `${item.label} • ${item.vertices.toLocaleString()} đỉnh • ${item.faces.toLocaleString()} mặt`;
+    updateStudioPanel();
+  } catch (error) {
+    if (requestId !== selectionToken) return;
+    viewerEmpty.textContent = "Không mở được GLB. Hãy kiểm tra API hoặc tải lại mô hình.";
+    showError(error.message || "Không mở được mô hình 3D.");
+  }
+}
+
+function leaveCurrentResult() {
+  if (activeResultIndex >= 0 && studio.hasModel()) {
+    batchResults[activeResultIndex].editorState = studio.getProjectState();
+  }
+  activeResultIndex = -1;
+  renderBatchTabs();
+}
+
+async function openLocalGlb(file) {
+  leaveCurrentResult();
+  const requestId = ++selectionToken;
+  studio.clear();
+  viewerEmpty.textContent = "Đang mở file GLB...";
+  viewerEmpty.classList.remove("hidden");
+  resultSection.classList.add("hidden");
+  try {
+    const loaded = await studio.loadFromFile(file);
+    if (!loaded || requestId !== selectionToken) return;
+    viewerEmpty.classList.add("hidden");
+    resultSection.classList.remove("hidden");
+    originalDownloads.classList.add("hidden");
+    meshStats.textContent = `File từ máy: ${file.name}`;
+    updateStudioPanel();
+  } catch (error) {
+    if (requestId !== selectionToken) return;
+    viewerEmpty.textContent = "Không mở được file GLB.";
+    showError(error.message || "File GLB không hợp lệ.");
+  }
+}
+
+function openSample() {
+  leaveCurrentResult();
+  selectionToken += 1;
+  studio.loadSample();
   viewerEmpty.classList.add("hidden");
   resultSection.classList.remove("hidden");
-
-  meshStats.textContent = `${item.label} • ${item.vertices.toLocaleString()} đỉnh • ${item.faces.toLocaleString()} mặt`;
-  updateScaledPreview();
-  renderBatchTabs();
+  originalDownloads.classList.add("hidden");
+  meshStats.textContent = "Mẫu thử 3D • không cần kết nối Colab";
+  updateStudioPanel();
 }
 
 function sleep(ms) {
@@ -246,6 +335,7 @@ async function submitAndPollJob(api, filesToSend, label, resultIdx) {
 
   const { job_id } = await createRes.json();
   batchResults[resultIdx].job_id = job_id;
+  batchResults[resultIdx].api = api;
 
   while (true) {
     await sleep(1500);
@@ -283,6 +373,10 @@ async function submitAndPollJob(api, filesToSend, label, resultIdx) {
 async function startProcess() {
   const api = getApiBase();
   if (!api || selectedFiles.length === 0 || isProcessing) return;
+  if (isNotebookLink(api)) {
+    showError("Hãy dán link API https://...trycloudflare.com từ Cell 3, không dán link notebook Colab.");
+    return;
+  }
 
   localStorage.setItem(STORAGE_KEY, api);
   hideError();
@@ -290,9 +384,12 @@ async function startProcess() {
   updateProcessBtnState();
 
   const mode = selectedFiles.length === 1 ? "single" : getSelectedMode();
+  selectionToken += 1;
+  studio.clear();
   batchResults = [];
   activeResultIndex = -1;
   resultSection.classList.add("hidden");
+  viewerEmpty.textContent = "Mô hình 3D sẽ hiển thị tại đây sau khi xử lý xong";
   viewerEmpty.classList.remove("hidden");
 
   progressBox.classList.remove("hidden");
@@ -337,10 +434,8 @@ async function startProcess() {
 function downloadFormat(fmt) {
   const item = batchResults[activeResultIndex];
   if (!item || !item.job_id) return;
-  const api = getApiBase();
-  const h = parseFloat(heightMmInput.value);
-  const query = h > 0 && fmt !== "ply" ? `?height_mm=${encodeURIComponent(h)}` : "";
-  const url = `${api}/jobs/${item.job_id}/download/${fmt}${query}`;
+  const api = item.api || getApiBase();
+  const url = `${api}/jobs/${item.job_id}/download/${fmt}`;
 
   const a = document.createElement("a");
   a.href = url;
@@ -355,7 +450,7 @@ apiUrlInput.addEventListener("input", updateProcessBtnState);
 checkServerBtn.addEventListener("click", checkServer);
 copyShareBtn.addEventListener("click", async () => {
   const api = getApiBase();
-  if (!api) return showError("Hãy nhập Link Colab API trước khi copy link chia sẻ.");
+  if (!api || isNotebookLink(api)) return showError("Hãy nhập link API từ Cell 3 trước khi copy link chia sẻ.");
   const shareUrl = `${window.location.origin}${window.location.pathname}?api=${encodeURIComponent(api)}`;
   try {
     await navigator.clipboard.writeText(shareUrl);
@@ -379,13 +474,61 @@ clearAllBtn.addEventListener("click", () => {
   renderThumbnails();
 });
 processBtn.addEventListener("click", startProcess);
-heightMmInput.addEventListener("input", updateScaledPreview);
-
-autoRotateToggle.addEventListener("change", (e) => {
-  if (e.target.checked) {
-    modelViewer.setAttribute("auto-rotate", "");
-  } else {
-    modelViewer.removeAttribute("auto-rotate");
+openGlbBtn.addEventListener("click", () => openGlbInput.click());
+openGlbInput.addEventListener("change", (event) => {
+  const file = event.target.files[0];
+  if (file) openLocalGlb(file);
+  openGlbInput.value = "";
+});
+sampleBtn.addEventListener("click", openSample);
+toolButtons.forEach((button) => {
+  button.addEventListener("click", () => studio.setMode(button.dataset.tool));
+});
+undoBtn.addEventListener("click", () => studio.undo());
+redoBtn.addEventListener("click", () => studio.redo());
+fitViewBtn.addEventListener("click", () => studio.fitView());
+dimensionInputs.forEach((input) => {
+  input.addEventListener("change", () => {
+    try {
+      studio.setDimension(Number(input.dataset.axis), Number(input.value), lockRatioInput.checked);
+      hideError();
+    } catch (error) {
+      showError(error.message);
+      input.value = studio.getDimensionsMm()[Number(input.dataset.axis)].toFixed(1);
+    }
+    updateStudioPanel();
+  });
+});
+exportGlbBtn.addEventListener("click", async () => {
+  try {
+    await studio.exportGlb();
+  } catch (error) {
+    showError(`Không xuất được GLB: ${error.message}`);
+  }
+});
+exportStlBtn.addEventListener("click", () => {
+  try {
+    studio.exportStl();
+  } catch (error) {
+    showError(`Không xuất được STL: ${error.message}`);
+  }
+});
+autoRotateToggle.addEventListener("change", (event) => {
+  studio.setAutoRotate(event.target.checked);
+});
+window.addEventListener("keydown", (event) => {
+  if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+    event.preventDefault();
+    if (event.shiftKey) studio.redo();
+    else studio.undo();
+  } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+    event.preventDefault();
+    studio.redo();
+  } else if (studio.hasModel() && !event.ctrlKey && !event.metaKey) {
+    const shortcuts = { w: "translate", e: "rotate", r: "scale" };
+    const mode = shortcuts[event.key.toLowerCase()];
+    if (mode) studio.setMode(mode);
   }
 });
 
