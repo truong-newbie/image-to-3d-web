@@ -7,7 +7,7 @@
 ## 1. Chạy thử nhanh (Local + Colab L4)
 
 ### Backend trên Colab L4
-1. Mở [notebook Colab của dự án](https://colab.research.google.com/drive/1b62Lspbeg6N8CaYfQYlA-QCCUjq6LSRK) (cùng nội dung với `colab_backend.ipynb`), chọn **Runtime → Change runtime type → L4 GPU**.
+1. Mở [notebook Colab mới](https://colab.research.google.com/drive/1ib6fQUhcnrAMB4Sw5LTjteyt1aAGy4X0) hoặc [bản mới nhất từ GitHub](https://colab.research.google.com/github/truong-newbie/image-to-3d-web/blob/main/web_app/colab_backend.ipynb), chọn **Runtime → Change runtime type → L4 GPU**. File `colab_backend.ipynb` trong repo là bản nguồn; notebook Drive là bản sao hiện tại.
 2. Chạy **Cell 1 → Cell 2 → Cell 3**. Colab clone `truong-newbie/image-to-3d-web`, in mã commit đang chạy và khởi động `web_app/backend/server.py`. Nếu `git pull` lỗi, Cell 3 dừng và báo lỗi.
 3. Copy link `https://xxxx.trycloudflare.com` ở cuối Cell 3. Cell này kết thúc sau khi tunnel sẵn sàng; backend tiếp tục chạy trong phiên Colab.
 4. Chạy **Cell 4** để thử một ảnh, nhiều góc, chế độ hàng loạt và tải GLB/STL/OBJ/PLY. Bước này chạy model thật nên có thể mất vài phút.
