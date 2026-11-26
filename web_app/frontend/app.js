@@ -1,5 +1,6 @@
 const STORAGE_KEY = "trellis_api_url";
 const MAX_IMAGES = 12;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 const apiUrlInput = document.getElementById("apiUrlInput");
 const checkServerBtn = document.getElementById("checkServerBtn");
@@ -131,6 +132,11 @@ function addFiles(fileList) {
   const incoming = Array.from(fileList || []).filter((f) => f.type.startsWith("image/"));
   if (incoming.length === 0) {
     showError("Vui lòng chọn file ảnh (PNG, JPG, WEBP).");
+    return;
+  }
+  const oversized = incoming.find((f) => f.size > MAX_FILE_BYTES);
+  if (oversized) {
+    showError(`Ảnh ${oversized.name} vượt quá giới hạn 10 MB.`);
     return;
   }
   hideError();

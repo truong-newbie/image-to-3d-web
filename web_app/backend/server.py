@@ -6,6 +6,7 @@ os.environ.setdefault("SPCONV_ALGO", "native")
 
 import io
 import queue
+import shutil
 import sys
 import threading
 import time
@@ -41,11 +42,17 @@ MEDIA_TYPES = {
     "ply": "application/octet-stream",
 }
 MAX_MULTI_IMAGES = 12
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_IMAGE_PIXELS = 20_000_000
+MAX_PENDING_JOBS = 8
+JOB_TTL_SECONDS = 60 * 60
+CLEANUP_INTERVAL_SECONDS = 5 * 60
 
 pipeline: Optional[TrellisImageTo3DPipeline] = None
-job_queue: "queue.Queue[dict]" = queue.Queue()
+job_queue: "queue.Queue[dict]" = queue.Queue(maxsize=MAX_PENDING_JOBS)
 jobs: Dict[str, dict] = {}
 jobs_lock = threading.Lock()
+cleanup_stop = threading.Event()
 
 
 def _update_job(job_id: str, **fields) -> None:
@@ -118,6 +125,27 @@ def _process_single_job(task: dict) -> None:
     )
 
 
+def _cleanup_expired_jobs(now: Optional[float] = None) -> None:
+    cutoff = (time.time() if now is None else now) - JOB_TTL_SECONDS
+    with jobs_lock:
+        expired = [
+            job_id for job_id, job in jobs.items()
+            if job["status"] in ("done", "error")
+            and job["finished_at"] is not None
+            and job["finished_at"] < cutoff
+        ]
+        for job_id in expired:
+            del jobs[job_id]
+
+    for job_id in expired:
+        shutil.rmtree(OUTPUT_ROOT / job_id, ignore_errors=True)
+
+
+def _cleanup_loop() -> None:
+    while not cleanup_stop.wait(CLEANUP_INTERVAL_SECONDS):
+        _cleanup_expired_jobs()
+
+
 def _worker_loop() -> None:
     while True:
         task = job_queue.get()
@@ -144,7 +172,13 @@ async def lifespan(_app: FastAPI):
     pipeline.cuda()
     worker = threading.Thread(target=_worker_loop, daemon=True)
     worker.start()
-    yield
+    cleanup_stop.clear()
+    cleaner = threading.Thread(target=_cleanup_loop, daemon=True)
+    cleaner.start()
+    try:
+        yield
+    finally:
+        cleanup_stop.set()
 
 
 app = FastAPI(title="TRELLIS Image-to-3D API", lifespan=lifespan)
@@ -194,24 +228,41 @@ async def create_job(
             detail=f"Chỉ hỗ trợ tối đa {MAX_MULTI_IMAGES} ảnh cho mỗi mô hình.",
         )
 
+    if job_queue.full():
+        raise HTTPException(status_code=429, detail="Hàng đợi đã đầy, vui lòng thử lại sau.")
+
     algo = multi_algo.strip().lower()
     if algo not in ("stochastic", "multidiffusion"):
         algo = "stochastic"
 
     parsed_images: List[Image.Image] = []
     for idx, up in enumerate(uploads):
-        raw_bytes = await up.read()
+        raw_bytes = await up.read(MAX_UPLOAD_BYTES + 1)
+        if len(raw_bytes) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Ảnh thứ {idx + 1} vượt quá giới hạn 10 MB.",
+            )
         try:
             img = Image.open(io.BytesIO(raw_bytes))
+            if img.width * img.height > MAX_IMAGE_PIXELS:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Ảnh thứ {idx + 1} vượt quá giới hạn 20 megapixel.",
+                )
             img.verify()
             img = Image.open(io.BytesIO(raw_bytes))
+            img.load()
             parsed_images.append(img)
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(
                 status_code=400,
                 detail=f"File ảnh thứ {idx + 1} ({up.filename}) không hợp lệ: {exc}",
             ) from exc
 
+    _cleanup_expired_jobs()
     job_id = uuid.uuid4().hex[:10]
     job_dir = OUTPUT_ROOT / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -236,17 +287,25 @@ async def create_job(
             "finished_at": None,
         }
 
-    job_queue.put(
-        {
-            "job_id": job_id,
-            "job_dir": str(job_dir),
-            "image_count": len(parsed_images),
-            "multi_algo": algo,
-            "simplify": simplify_clamped,
-            "texture_size": tex_size,
-            "seed": int(seed),
-        }
-    )
+    try:
+        job_queue.put_nowait(
+            {
+                "job_id": job_id,
+                "job_dir": str(job_dir),
+                "image_count": len(parsed_images),
+                "multi_algo": algo,
+                "simplify": simplify_clamped,
+                "texture_size": tex_size,
+                "seed": int(seed),
+            }
+        )
+    except queue.Full as exc:
+        with jobs_lock:
+            jobs.pop(job_id, None)
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=429, detail="Hàng đợi đã đầy, vui lòng thử lại sau."
+        ) from exc
 
     return {
         "job_id": job_id,
