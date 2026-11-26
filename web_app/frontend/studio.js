@@ -31,6 +31,25 @@ function disposeObject(root) {
   });
 }
 
+// Older TRELLIS exports omitted metallicFactor. glTF then defaults to fully metallic.
+function repairLegacyTrellisMaterial(gltf) {
+  const materials = gltf.parser?.json?.materials;
+  if (materials?.length !== 1) return;
+  const pbr = materials[0].pbrMetallicRoughness;
+  if (!pbr?.baseColorTexture || pbr.metallicFactor !== undefined || pbr.metallicRoughnessTexture || pbr.roughnessFactor !== 1) return;
+
+  gltf.scene.traverse((object) => {
+    if (!object.isMesh) return;
+    const objectMaterials = Array.isArray(object.material) ? object.material : [object.material];
+    objectMaterials.forEach((material) => {
+      if (material?.isMeshStandardMaterial && material.metalness === 1) {
+        material.metalness = 0;
+        material.needsUpdate = true;
+      }
+    });
+  });
+}
+
 export class Studio {
   constructor(container, onChange = () => {}) {
     this.container = container;
@@ -146,6 +165,7 @@ export class Studio {
       disposeObject(gltf.scene);
       return false;
     }
+    repairLegacyTrellisMaterial(gltf);
     this.setContent(gltf.scene, options);
     return true;
   }

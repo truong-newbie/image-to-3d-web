@@ -456,6 +456,7 @@ def to_glb(
     # rotate mesh (from z-up to y-up)
     vertices = vertices @ np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]])
     material = trimesh.visual.material.PBRMaterial(
+        metallicFactor=0.0,
         roughnessFactor=1.0,
         baseColorTexture=texture,
         baseColorFactor=np.array([255, 255, 255, 255], dtype=np.uint8)
