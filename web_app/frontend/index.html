@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TRELLIS — Chuyển Ảnh Sang 3D</title>
+  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div>
+        <h1>Image to 3D Studio</h1>
+        <p class="subtitle">Chuyển 1 hoặc nhiều ảnh 2D thành mô hình 3D (GLB, STL, OBJ, PLY)</p>
+      </div>
+      <div class="status-pill" id="serverBadge">
+        <span class="dot" id="statusDot"></span>
+        <span id="statusText">Chưa kết nối server</span>
+      </div>
+    </header>
+
+    <!-- Kết nối Colab Backend -->
+    <section class="card server-bar">
+      <label for="apiUrlInput" class="server-label">Link Colab API:</label>
+      <input
+        id="apiUrlInput"
+        type="url"
+        placeholder="Dán link từ Colab (vd: https://xxxx.trycloudflare.com)"
+        autocomplete="off"
+      />
+      <button id="checkServerBtn" class="btn btn-secondary" type="button">Kiểm tra</button>
+      <button id="copyShareBtn" class="btn btn-ghost" type="button" title="Copy link web kèm sẵn API để gửi cho người khác">
+        Copy link chia sẻ
+      </button>
+    </section>
+
+    <main class="grid">
+      <!-- Cột trái: Upload ảnh & Process -->
+      <section class="card panel">
+        <div class="panel-header-row">
+          <h2 class="panel-title">1. Chọn ảnh đầu vào</h2>
+          <div class="panel-actions hidden" id="imageActions">
+            <button id="addMoreBtn" class="btn btn-small btn-secondary" type="button">+ Thêm ảnh</button>
+            <button id="clearAllBtn" class="btn btn-small btn-ghost" type="button">Xóa hết</button>
+          </div>
+        </div>
+
+        <label class="dropzone" id="dropzone" for="imageInput">
+          <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden />
+          <div id="dropzonePlaceholder" class="dropzone-placeholder">
+            <div class="upload-icon">🖼️</div>
+            <p class="dropzone-main">Bấm để chọn 1 hoặc nhiều ảnh, hoặc kéo thả vào đây</p>
+            <p class="dropzone-sub">Hỗ trợ PNG, JPG, WEBP (tối đa 12 ảnh)</p>
+          </div>
+          <div id="thumbGrid" class="thumb-grid hidden"></div>
+        </label>
+
+        <div id="fileInfo" class="file-info hidden"></div>
+
+        <!-- Chọn chế độ xử lý khi có từ 2 ảnh trở lên -->
+        <div id="modeBox" class="mode-box hidden">
+          <div class="mode-title">Chế độ xử lý nhiều ảnh:</div>
+          <div class="mode-options">
+            <label class="mode-card">
+              <input type="radio" name="processMode" value="multi_view" checked />
+              <div>
+                <strong>Gộp nhiều góc → 1 mô hình 3D</strong>
+                <span>Dùng khi các ảnh là nhiều góc chụp của cùng 1 vật thể</span>
+              </div>
+            </label>
+            <label class="mode-card">
+              <input type="radio" name="processMode" value="batch" />
+              <div>
+                <strong>Chuyển hàng loạt → mỗi ảnh 1 file 3D</strong>
+                <span>Dùng khi các ảnh là nhiều đồ vật khác nhau</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <button id="processBtn" class="btn btn-primary btn-full" type="button" disabled>
+          Process (Tạo mô hình 3D)
+        </button>
+
+        <div id="progressBox" class="progress-box hidden">
+          <div class="spinner" id="progressSpinner"></div>
+          <span id="progressText">Đang chuẩn bị...</span>
+        </div>
+
+        <div id="errorBox" class="error-box hidden"></div>
+      </section>
+
+      <!-- Cột phải: Hiển thị 3D & Tải file -->
+      <section class="card panel">
+        <div class="viewer-header">
+          <h2 class="panel-title">2. Kết quả 3D &amp; Tải xuống</h2>
+          <label class="toggle-rotate">
+            <input id="autoRotateToggle" type="checkbox" checked />
+            <span>Tự xoay</span>
+          </label>
+        </div>
+
+        <!-- Danh sách chuyển nhanh các kết quả khi chạy hàng loạt -->
+        <div id="batchTabs" class="batch-tabs hidden"></div>
+
+        <div class="viewer-wrap">
+          <model-viewer
+            id="modelViewer"
+            auto-rotate
+            camera-controls
+            shadow-intensity="1"
+            exposure="1.0"
+            interaction-prompt="auto"
+          ></model-viewer>
+          <div id="viewerEmpty" class="viewer-empty">
+            Mô hình 3D sẽ hiển thị tại đây sau khi xử lý xong
+          </div>
+        </div>
+
+        <div id="resultSection" class="result-section hidden">
+          <div id="meshStats" class="mesh-stats"></div>
+
+          <div class="scale-row">
+            <label for="heightMmInput">Chiều cao khi tải (mm):</label>
+            <input
+              id="heightMmInput"
+              type="number"
+              min="0"
+              max="10000"
+              step="1"
+              placeholder="Gốc (không đổi)"
+            />
+            <span id="scaledDimsText" class="scaled-dims"></span>
+          </div>
+
+          <div class="download-grid">
+            <button class="btn btn-download" data-fmt="glb" type="button">
+              <span class="fmt-name">.GLB</span>
+              <span class="fmt-desc">Có màu / Texture</span>
+            </button>
+            <button class="btn btn-download" data-fmt="stl" type="button">
+              <span class="fmt-name">.STL</span>
+              <span class="fmt-desc">In 3D (Z-up)</span>
+            </button>
+            <button class="btn btn-download" data-fmt="obj" type="button">
+              <span class="fmt-name">.OBJ</span>
+              <span class="fmt-desc">Mesh 3D phổ thông</span>
+            </button>
+            <button class="btn btn-download" data-fmt="ply" type="button">
+              <span class="fmt-name">.PLY</span>
+              <span class="fmt-desc">3D Gaussian</span>
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
