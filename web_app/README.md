@@ -8,8 +8,8 @@
 
 ### Backend trên Colab L4
 1. Upload `colab_backend.ipynb` lên Google Colab, chọn **Runtime → Change runtime type → L4 GPU**.
-2. Chạy lần lượt **Cell 1 → Cell 2 → Cell 3 → Cell 4**.
-3. Copy link `https://xxxx.trycloudflare.com` ở cuối Cell 4.
+2. Chạy lần lượt **Cell 1 → Cell 2 → Cell 3** (Colab sẽ clone trực tiếp từ repo `https://github.com/truong-newbie/image-to-3d-web.git` và chạy `web_app/backend/server.py`).
+3. Copy link `https://xxxx.trycloudflare.com` ở cuối Cell 3.
 
 ### Frontend trên máy bạn
 ```sh
