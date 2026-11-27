@@ -19,8 +19,10 @@ python -m http.server 5500
 ```
 Mở `http://localhost:5500`, dán link `https://xxxx.trycloudflare.com` **do Cell 3 in ra** vào ô **Link API từ Cell 3** → **Kiểm tra** → chọn 1 hoặc nhiều ảnh → **Process**. Link trang notebook `colab.research.google.com/drive/...` không phải link API. Colab phải đang chạy để tạo mô hình mới; nút **Thử mẫu 3D** và **Mở GLB từ máy** dùng được mà không cần Colab.
 
-### Chỉnh sửa trong Studio
+### Chỉnh sửa trong Studio & Xử lý ảnh bảo tàng
 
+- **Hiện vật trong tủ kính (chế độ Vật thể 3D — TRELLIS):** Trước khi bấm **Process**, kéo 4 góc trên khung **Cắt vùng hiện vật** để cắt bỏ viền tủ kính, đế gỗ và nền thừa xung quanh vật thể. Nếu chọn nhiều ảnh, bấm vào từng ảnh thu nhỏ để cắt riêng từng góc trước khi gửi lên Colab. Khi gộp nhiều góc (`multi_view`), nên chụp góc chéo ~45° thấy rõ 2 mặt kề nhau và có thể chọn thuật toán **Multidiffusion** để gộp đều giữa các góc hơn.
+- **Tranh phẳng, khối chóp 4 mặt & khối hộp 3D (chế độ 0đ GPU trên trình duyệt):** Chọn **Khối 3D từ ảnh mặt phẳng (0đ GPU)**, chọn mẫu phù hợp (`Tranh đóng khung`, `Khối chóp 4 mặt` hoặc `Khối hộp / Bia 3D`), bấm từng ảnh (tối đa 4 ảnh theo thứ tự Trước → Phải → Sau → Trái) để kéo 4 góc `1 → 2 → 3 → 4` nắn phẳng, chỉnh `Độ thu đỉnh` / `Độ sâu khối` nếu cần, rồi bấm nút tạo khối để xem trong Studio và xuất `.GLB` / `.STL` ngay không cần kết nối Colab.
 - Chọn **Di chuyển / Xoay / Co giãn**, rồi kéo các trục màu trên mô hình. Dùng **Hoàn tác / Làm lại** hoặc Ctrl+Z / Ctrl+Y.
 - Nhập rộng, cao, sâu theo mm; bật **Giữ tỷ lệ** để đổi đều ba chiều. Mô hình TRELLIS được đặt cao 100 mm lúc mở vì model không biết kích thước thật của vật thể trong ảnh.
 - **Xuất GLB đã sửa** giữ vật liệu và texture, dùng đơn vị mét theo glTF. **Xuất STL đã sửa** dùng mm và trục Z hướng lên để đưa vào phần mềm in 3D. Các nút ở phần **Tải file gốc từ Colab** lấy bản chưa chỉnh.
