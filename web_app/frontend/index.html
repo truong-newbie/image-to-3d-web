@@ -66,7 +66,74 @@
 
         <div id="fileInfo" class="file-info hidden"></div>
 
-        <!-- Chọn chế độ xử lý khi có từ 2 ảnh trở lên -->
+        <!-- Chọn loại quy trình tạo 3D -->
+        <div id="workflowBox" class="mode-box hidden">
+          <div class="mode-title">Loại hiện vật / cách xử lý:</div>
+          <div class="mode-options">
+            <label class="mode-card">
+              <input type="radio" name="workflowType" value="trellis" checked />
+              <div>
+                <strong>Vật thể 3D (TRELLIS — cần Colab)</strong>
+                <span>Dành cho tượng, đồ vật, hiện vật nổi; dùng khung Crop để bỏ vỏ tủ kính</span>
+              </div>
+            </label>
+            <label class="mode-card">
+              <input type="radio" name="workflowType" value="frame" />
+              <div>
+                <strong>Khối 3D từ ảnh mặt phẳng (0đ GPU)</strong>
+                <span>Dựng Khung tranh, Khối chóp 4 mặt hoặc Khối hộp / Bia 3D ngay lập tức</span>
+              </div>
+            </label>
+          </div>
+
+          <div id="solidPresetBox" class="sub-mode-box hidden">
+            <div class="mode-title">Kiểu khối 3D:</div>
+            <div class="solid-preset-row">
+              <label class="solid-preset-chip">
+                <input type="radio" name="solidPreset" value="frame" checked />
+                <span>Tranh đóng khung</span>
+              </label>
+              <label class="solid-preset-chip">
+                <input type="radio" name="solidPreset" value="pyramid" />
+                <span>Khối chóp 4 mặt</span>
+              </label>
+              <label class="solid-preset-chip">
+                <input type="radio" name="solidPreset" value="box" />
+                <span>Khối hộp / Bia 3D</span>
+              </label>
+            </div>
+
+            <div id="solidParamsBox" class="solid-params-box hidden">
+              <label id="topRatioRow" class="range-row">
+                <span>Độ thu đỉnh: <strong id="topRatioVal">4%</strong></span>
+                <input id="topRatioInput" type="range" min="0" max="75" step="1" value="4" />
+              </label>
+              <label class="range-row">
+                <span>Độ sâu khối: <strong id="depthRatioVal">100%</strong></span>
+                <input id="depthRatioInput" type="range" min="20" max="160" step="5" value="100" />
+              </label>
+              <p id="solidFaceHint" class="capture-tip">
+                Dùng tối đa 4 ảnh đầu tiên (Trước → Phải → Sau → Trái). Bấm từng ảnh ở trên để kéo 4 góc từng mặt.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Trình cắt vùng / kéo 4 góc trực tiếp -->
+        <div id="regionEditorBox" class="region-editor-box hidden">
+          <div class="region-editor-header">
+            <span id="regionEditorTitle" class="region-editor-title">Cắt vùng hiện vật</span>
+            <button id="resetRegionBtn" class="btn btn-small btn-ghost" type="button">Đặt lại</button>
+          </div>
+          <div class="region-canvas-wrap">
+            <canvas id="regionCanvas" class="region-canvas"></canvas>
+          </div>
+          <p id="regionEditorHint" class="region-editor-hint">
+            Kéo 4 góc xanh để cắt bỏ khung tủ kính hoặc nền thừa xung quanh vật thể.
+          </p>
+        </div>
+
+        <!-- Chọn chế độ xử lý khi có từ 2 ảnh trở lên (TRELLIS) -->
         <div id="modeBox" class="mode-box hidden">
           <div class="mode-title">Chế độ xử lý nhiều ảnh:</div>
           <div class="mode-options">
@@ -84,6 +151,23 @@
                 <span>Dùng khi các ảnh là nhiều đồ vật khác nhau</span>
               </div>
             </label>
+          </div>
+
+          <div id="multiAlgoBox" class="sub-mode-box">
+            <div class="mode-title">Thuật toán gộp nhiều góc (TRELLIS):</div>
+            <div class="solid-preset-row">
+              <label class="solid-preset-chip">
+                <input type="radio" name="multiAlgo" value="stochastic" checked />
+                <span>Nhanh (Stochastic)</span>
+              </label>
+              <label class="solid-preset-chip">
+                <input type="radio" name="multiAlgo" value="multidiffusion" />
+                <span>Đồng đều (Multidiffusion)</span>
+              </label>
+            </div>
+            <p class="capture-tip">
+              Mẹo: Chụp góc chéo ~45° thấy 2 mặt kề nhau; nếu chụp thẳng 4 mặt của chóp/hộp, hãy chọn chế độ <strong>Khối 3D từ ảnh mặt phẳng</strong> ở trên.
+            </p>
           </div>
         </div>
 

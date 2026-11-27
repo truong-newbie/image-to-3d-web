@@ -1,4 +1,8 @@
 import { Studio } from "./studio.js";
+import { ImageRegionEditor } from "./image_editor.js";
+import { buildFramedArtwork } from "./frame_builder.js";
+import { buildSolidFromCanvases } from "./solid_builder.js";
+import { SOLID_PRESETS } from "./solid_math.mjs";
 
 const STORAGE_KEY = "trellis_api_url";
 const MAX_IMAGES = 12;
@@ -18,7 +22,25 @@ const imageActions = document.getElementById("imageActions");
 const addMoreBtn = document.getElementById("addMoreBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 const fileInfo = document.getElementById("fileInfo");
+const workflowBox = document.getElementById("workflowBox");
+const workflowInputs = document.querySelectorAll('input[name="workflowType"]');
+const solidPresetBox = document.getElementById("solidPresetBox");
+const solidPresetInputs = document.querySelectorAll('input[name="solidPreset"]');
+const solidParamsBox = document.getElementById("solidParamsBox");
+const topRatioRow = document.getElementById("topRatioRow");
+const topRatioInput = document.getElementById("topRatioInput");
+const topRatioVal = document.getElementById("topRatioVal");
+const depthRatioInput = document.getElementById("depthRatioInput");
+const depthRatioVal = document.getElementById("depthRatioVal");
+const solidFaceHint = document.getElementById("solidFaceHint");
+const regionEditorBox = document.getElementById("regionEditorBox");
+const regionEditorTitle = document.getElementById("regionEditorTitle");
+const regionEditorHint = document.getElementById("regionEditorHint");
+const resetRegionBtn = document.getElementById("resetRegionBtn");
+const regionCanvas = document.getElementById("regionCanvas");
 const modeBox = document.getElementById("modeBox");
+const processModeInputs = document.querySelectorAll('input[name="processMode"]');
+const multiAlgoBox = document.getElementById("multiAlgoBox");
 
 const processBtn = document.getElementById("processBtn");
 const progressBox = document.getElementById("progressBox");
@@ -50,12 +72,14 @@ const originalDownloads = document.getElementById("originalDownloads");
 const downloadBtns = document.querySelectorAll(".btn-download");
 
 let selectedFiles = [];
+let activeInputIndex = 0;
 let previewUrls = [];
 let batchResults = []; // [{ label, job_id, status, step, extents_xyz, vertices, faces, error }]
 let activeResultIndex = -1;
 let isProcessing = false;
 let selectionToken = 0;
 const studio = new Studio(studioCanvas, updateStudioPanel);
+const regionEditor = new ImageRegionEditor(regionCanvas, updateEditorLabels);
 
 function getApiBase() {
   return apiUrlInput.value.trim().replace(/\/+$/, "");
@@ -69,9 +93,19 @@ function isNotebookLink(url) {
   }
 }
 
-function getSelectedMode() {
-  const checked = document.querySelector('input[name="processMode"]:checked');
-  return checked ? checked.value : "multi_view";
+function getCheckedValue(name, fallback) {
+  const checked = document.querySelector(`input[name="${name}"]:checked`);
+  return checked ? checked.value : fallback;
+}
+
+const getWorkflowType = () => getCheckedValue("workflowType", "trellis");
+const getSolidPreset = () => getCheckedValue("solidPreset", "frame");
+const getSelectedMode = () => getCheckedValue("processMode", "multi_view");
+const getMultiAlgo = () => getCheckedValue("multiAlgo", "stochastic");
+
+function syncSolidControlLabels() {
+  topRatioVal.textContent = `${topRatioInput.value}%`;
+  depthRatioVal.textContent = `${depthRatioInput.value}%`;
 }
 
 function setStatus(state, text) {
@@ -90,8 +124,109 @@ function hideError() {
 }
 
 function updateProcessBtnState() {
+  const workflow = getWorkflowType();
+  if (workflow === "frame") {
+    const preset = getSolidPreset();
+    const labelMap = {
+      frame: "Tạo khung tranh 3D (không cần Colab)",
+      pyramid: "Tạo khối chóp 4 mặt 3D (không cần Colab)",
+      box: "Tạo khối hộp / bia 3D (không cần Colab)",
+    };
+    processBtn.textContent = labelMap[preset] || labelMap.frame;
+    processBtn.disabled = isProcessing || selectedFiles.length === 0;
+    return;
+  }
   const api = getApiBase();
+  processBtn.textContent = "Process (Tạo mô hình 3D)";
   processBtn.disabled = isProcessing || selectedFiles.length === 0 || !api || isNotebookLink(api);
+}
+
+function updateEditorLabels() {
+  if (selectedFiles.length === 0) return;
+  const activeFile = selectedFiles[activeInputIndex];
+  const workflow = getWorkflowType();
+  if (workflow !== "frame") {
+    const croppedNote = regionEditor.isCropped(activeFile) ? " • Đã cắt vùng" : "";
+    regionEditorTitle.textContent =
+      selectedFiles.length > 1
+        ? `Cắt vùng ảnh ${activeInputIndex + 1}${croppedNote}`
+        : `Cắt vùng hiện vật (tùy chọn)${croppedNote}`;
+    regionEditorHint.textContent =
+      "Kéo 4 góc xanh để cắt bỏ vỏ tủ kính hoặc nền thừa xung quanh hiện vật trước khi bấm Process.";
+    return;
+  }
+
+  const preset = getSolidPreset();
+  if (preset === "frame") {
+    regionEditorTitle.textContent =
+      selectedFiles.length > 1
+        ? `Kéo 4 góc cho ảnh ${activeInputIndex + 1} (${activeFile.name})`
+        : "Kéo 4 góc quanh bức tranh";
+    regionEditorHint.textContent =
+      "Kéo 4 điểm 1 (Trên-Trái) → 2 (Trên-Phải) → 3 (Dưới-Phải) → 4 (Dưới-Trái) khớp mép tranh để nắn phẳng.";
+    return;
+  }
+
+  const usedCount = Math.min(4, selectedFiles.length);
+  const faceNames = ["Trước", "Phải", "Sau", "Trái"];
+  const faceTag =
+    activeInputIndex < 4 ? `Mặt ${faceNames[activeInputIndex]}` : "Ngoài 4 ảnh đầu (không ghép)";
+  const solidLabel = preset === "pyramid" ? "Khối chóp" : "Khối hộp";
+  regionEditorTitle.textContent = `${solidLabel} • Ảnh ${activeInputIndex + 1}/${selectedFiles.length} (${faceTag})`;
+  regionEditorHint.textContent =
+    activeInputIndex < 4
+      ? `Kéo 4 góc quanh mặt ${faceNames[activeInputIndex].toLowerCase()} (1 Trên-Trái → 2 Trên-Phải → 3 Dưới-Phải → 4 Dưới-Trái). Đã dùng ${usedCount}/4 mặt.`
+      : "Chế độ này chỉ ghép 4 ảnh đầu tiên (ảnh 1–4); hãy chọn ảnh 1–4 ở trên để chỉnh góc.";
+}
+
+function syncSolidVisibility() {
+  const workflow = getWorkflowType();
+  const preset = getSolidPreset();
+  const isOffline = workflow === "frame";
+  const isMultiFaceSolid = isOffline && (preset === "pyramid" || preset === "box");
+
+  solidPresetBox.classList.toggle("hidden", !isOffline);
+  solidParamsBox.classList.toggle("hidden", !isMultiFaceSolid);
+  topRatioRow.classList.toggle("hidden", preset !== "pyramid");
+  syncSolidControlLabels();
+
+  if (!isMultiFaceSolid) return;
+  if (selectedFiles.length > 4) {
+    solidFaceHint.textContent =
+      "Đang có hơn 4 ảnh: hệ thống sẽ ghép 4 ảnh đầu tiên (Trước → Phải → Sau → Trái).";
+    return;
+  }
+  const missing = Math.max(0, 4 - selectedFiles.length);
+  solidFaceHint.textContent =
+    missing > 0
+      ? `Dùng ${selectedFiles.length} ảnh (còn ${missing} mặt sẽ tự lặp lại từ ảnh đã có). Bấm từng ảnh ở trên để kéo 4 góc.`
+      : "Dùng đủ 4 ảnh (Trước → Phải → Sau → Trái). Bấm từng ảnh ở trên để kéo 4 góc từng mặt.";
+}
+
+function syncEditorView() {
+  const hasFiles = selectedFiles.length > 0;
+  workflowBox.classList.toggle("hidden", !hasFiles);
+  regionEditorBox.classList.toggle("hidden", !hasFiles);
+  if (!hasFiles) {
+    solidPresetBox.classList.add("hidden");
+    modeBox.classList.add("hidden");
+    regionEditor.setTarget(null, "crop");
+    updateProcessBtnState();
+    return;
+  }
+
+  activeInputIndex = Math.max(0, Math.min(activeInputIndex, selectedFiles.length - 1));
+  const workflow = getWorkflowType();
+  const editorMode = workflow === "frame" ? "quad" : "crop";
+  const showMultiBox = workflow === "trellis" && selectedFiles.length >= 2;
+  modeBox.classList.toggle("hidden", !showMultiBox);
+  multiAlgoBox.classList.toggle("hidden", !showMultiBox || getSelectedMode() !== "multi_view");
+  syncSolidVisibility();
+  updateEditorLabels();
+  updateProcessBtnState();
+  regionEditor.setTarget(selectedFiles[activeInputIndex], editorMode).catch((err) => {
+    showError(err.message || "Không tải được ảnh vào trình chỉnh vùng.");
+  });
 }
 
 function renderThumbnails() {
@@ -100,21 +235,21 @@ function renderThumbnails() {
   thumbGrid.innerHTML = "";
 
   if (selectedFiles.length === 0) {
+    activeInputIndex = 0;
     thumbGrid.classList.add("hidden");
     thumbGrid.classList.remove("single");
     dropzonePlaceholder.classList.remove("hidden");
     imageActions.classList.add("hidden");
     fileInfo.classList.add("hidden");
-    modeBox.classList.add("hidden");
-    updateProcessBtnState();
+    syncEditorView();
     return;
   }
 
+  activeInputIndex = Math.max(0, Math.min(activeInputIndex, selectedFiles.length - 1));
   dropzonePlaceholder.classList.add("hidden");
   thumbGrid.classList.remove("hidden");
   thumbGrid.classList.toggle("single", selectedFiles.length === 1);
   imageActions.classList.remove("hidden");
-  modeBox.classList.toggle("hidden", selectedFiles.length < 2);
 
   let totalKb = 0;
   selectedFiles.forEach((file, idx) => {
@@ -123,11 +258,18 @@ function renderThumbnails() {
     previewUrls.push(url);
 
     const item = document.createElement("div");
-    item.className = "thumb-item";
+    item.className = "thumb-item" + (selectedFiles.length > 1 && idx === activeInputIndex ? " active" : "");
 
     const img = document.createElement("img");
     img.src = url;
     img.alt = file.name;
+
+    item.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      activeInputIndex = idx;
+      renderThumbnails();
+    });
 
     const removeBtn = document.createElement("button");
     removeBtn.type = "button";
@@ -138,6 +280,9 @@ function renderThumbnails() {
       e.preventDefault();
       e.stopPropagation();
       selectedFiles.splice(idx, 1);
+      if (activeInputIndex >= selectedFiles.length) {
+        activeInputIndex = Math.max(0, selectedFiles.length - 1);
+      }
       renderThumbnails();
     });
 
@@ -149,10 +294,10 @@ function renderThumbnails() {
   if (selectedFiles.length === 1) {
     fileInfo.textContent = `Đã chọn: ${selectedFiles[0].name} (${totalKb.toFixed(1)} KB)`;
   } else {
-    fileInfo.textContent = `Đã chọn ${selectedFiles.length} ảnh (tổng ${totalKb.toFixed(1)} KB)`;
+    fileInfo.textContent = `Đã chọn ${selectedFiles.length} ảnh (tổng ${totalKb.toFixed(1)} KB) • Bấm từng ảnh để cắt/chọn góc`;
   }
   fileInfo.classList.remove("hidden");
-  updateProcessBtnState();
+  syncEditorView();
 }
 
 function addFiles(fileList) {
@@ -323,9 +468,12 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function submitAndPollJob(api, filesToSend, label, resultIdx) {
+async function submitAndPollJob(api, filesToSend, label, resultIdx, multiAlgo = "stochastic") {
   const fd = new FormData();
   filesToSend.forEach((f) => fd.append("files", f));
+  if (filesToSend.length > 1 && multiAlgo) {
+    fd.append("multi_algo", multiAlgo);
+  }
 
   const createRes = await fetch(`${api}/jobs`, { method: "POST", body: fd });
   if (!createRes.ok) {
@@ -370,9 +518,76 @@ async function submitAndPollJob(api, filesToSend, label, resultIdx) {
   }
 }
 
+async function createOfflineSolidModel() {
+  const preset = getSolidPreset();
+  const activeFile = selectedFiles[activeInputIndex];
+  if (!activeFile) return;
+
+  leaveCurrentResult();
+  const requestId = ++selectionToken;
+  hideError();
+  isProcessing = true;
+  updateProcessBtnState();
+  progressBox.classList.remove("hidden");
+
+  try {
+    let modelGroup;
+    let statsLabel;
+    let modelName = activeFile.name;
+
+    if (preset === "frame") {
+      progressText.textContent = "Đang nắn phẳng tranh & dựng khung 3D...";
+      await sleep(0);
+      if (requestId !== selectionToken) return;
+      const warpedCanvas = await regionEditor.exportWarpedCanvas(activeFile);
+      if (requestId !== selectionToken) return;
+      modelGroup = buildFramedArtwork(warpedCanvas);
+      statsLabel = `Khung tranh 3D (${warpedCanvas.width}×${warpedCanvas.height} px) • chạy trên trình duyệt`;
+    } else {
+      const faceFiles = selectedFiles.slice(0, 4);
+      const warpedCanvases = [];
+      for (let i = 0; i < faceFiles.length; i += 1) {
+        if (requestId !== selectionToken) return;
+        progressText.textContent = `Đang nắn phẳng mặt ${i + 1}/${faceFiles.length}...`;
+        await sleep(0);
+        if (requestId !== selectionToken) return;
+        warpedCanvases.push(await regionEditor.exportWarpedCanvas(faceFiles[i]));
+      }
+      if (requestId !== selectionToken) return;
+      const topRatio =
+        preset === "box" ? SOLID_PRESETS.box.topRatio : Number(topRatioInput.value) / 100;
+      const depthRatio = Number(depthRatioInput.value) / 100;
+      modelGroup = buildSolidFromCanvases(warpedCanvases, { preset, topRatio, depthRatio });
+      const title = preset === "pyramid" ? "Khối chóp 4 mặt" : "Khối hộp / Bia 3D";
+      statsLabel = `${title} (${warpedCanvases.length} ảnh mặt) • chạy trên trình duyệt`;
+      modelName = faceFiles.length > 1 ? `${preset}_${faceFiles.length}_faces` : faceFiles[0].name;
+    }
+
+    if (requestId !== selectionToken) return;
+    studio.loadObject(modelGroup, { name: modelName, initialHeightMm: 100 });
+    viewerEmpty.classList.add("hidden");
+    resultSection.classList.remove("hidden");
+    originalDownloads.classList.add("hidden");
+    meshStats.textContent = statsLabel;
+    updateStudioPanel();
+  } catch (err) {
+    showError(err.message || "Không tạo được khối 3D trên trình duyệt.");
+  } finally {
+    isProcessing = false;
+    progressBox.classList.add("hidden");
+    updateProcessBtnState();
+  }
+}
+
 async function startProcess() {
+  if (selectedFiles.length === 0 || isProcessing) return;
+  if (getWorkflowType() === "frame") {
+    await createOfflineSolidModel();
+    return;
+  }
+
   const api = getApiBase();
-  if (!api || selectedFiles.length === 0 || isProcessing) return;
+  if (!api) return;
   if (isNotebookLink(api)) {
     showError("Hãy dán link API https://...trycloudflare.com từ Cell 3, không dán link notebook Colab.");
     return;
@@ -393,11 +608,19 @@ async function startProcess() {
   viewerEmpty.classList.remove("hidden");
 
   progressBox.classList.remove("hidden");
-  progressText.textContent = "Đang tải ảnh lên Colab...";
+  progressText.textContent = "Đang chuẩn bị ảnh tải lên Colab...";
 
   try {
+    const preparedFiles = await Promise.all(
+      selectedFiles.map((file) => regionEditor.exportCroppedFile(file))
+    );
+    const oversized = preparedFiles.find((f) => f.size > MAX_FILE_BYTES);
+    if (oversized) {
+      throw new Error(`Ảnh sau khi cắt (${oversized.name}) vượt quá 10 MB.`);
+    }
+
     if (mode === "batch") {
-      batchResults = selectedFiles.map((f, i) => ({
+      batchResults = preparedFiles.map((f, i) => ({
         label: `Ảnh ${i + 1}`,
         job_id: null,
         status: "queued",
@@ -406,9 +629,9 @@ async function startProcess() {
       renderBatchTabs();
 
       const errors = [];
-      for (let i = 0; i < selectedFiles.length; i++) {
+      for (let i = 0; i < preparedFiles.length; i++) {
         try {
-          await submitAndPollJob(api, [selectedFiles[i]], `Ảnh ${i + 1}`, i);
+          await submitAndPollJob(api, [preparedFiles[i]], `Ảnh ${i + 1}`, i);
         } catch (err) {
           errors.push(`Ảnh ${i + 1}: ${err.message}`);
         }
@@ -417,10 +640,10 @@ async function startProcess() {
         showError(errors.join(" | "));
       }
     } else {
-      const label = selectedFiles.length > 1 ? `Gộp ${selectedFiles.length} ảnh` : selectedFiles[0].name;
+      const label = preparedFiles.length > 1 ? `Gộp ${preparedFiles.length} ảnh` : preparedFiles[0].name;
       batchResults = [{ label, job_id: null, status: "queued", step: "Đang chờ..." }];
       renderBatchTabs();
-      await submitAndPollJob(api, selectedFiles, label, 0);
+      await submitAndPollJob(api, preparedFiles, label, 0, getMultiAlgo());
     }
   } catch (err) {
     showError(err.message || "Có lỗi xảy ra khi xử lý.");
@@ -471,8 +694,34 @@ imageInput.addEventListener("change", (e) => {
 addMoreBtn.addEventListener("click", () => imageInput.click());
 clearAllBtn.addEventListener("click", () => {
   selectedFiles = [];
+  activeInputIndex = 0;
   renderThumbnails();
 });
+workflowInputs.forEach((input) => {
+  input.addEventListener("change", () => syncEditorView());
+});
+solidPresetInputs.forEach((input) => {
+  input.addEventListener("change", () => {
+    const preset = getSolidPreset();
+    const defaults = SOLID_PRESETS[preset];
+    if (defaults) {
+      if (preset === "pyramid") {
+        topRatioInput.value = String(Math.round(defaults.topRatio * 100));
+      }
+      depthRatioInput.value = String(Math.round(defaults.depthRatio * 100));
+    }
+    syncSolidVisibility();
+    updateEditorLabels();
+    updateProcessBtnState();
+  });
+});
+topRatioInput.addEventListener("input", syncSolidControlLabels);
+depthRatioInput.addEventListener("input", syncSolidControlLabels);
+processModeInputs.forEach((input) => {
+  input.addEventListener("change", () => syncEditorView());
+});
+resetRegionBtn.addEventListener("click", () => regionEditor.resetActive());
+window.addEventListener("resize", () => regionEditor.render());
 processBtn.addEventListener("click", startProcess);
 openGlbBtn.addEventListener("click", () => openGlbInput.click());
 openGlbInput.addEventListener("change", (event) => {
