@@ -166,6 +166,11 @@ export class Studio {
     this.setContent(sample, { name: "mau-thu" });
   }
 
+  loadObject(object3D, options = {}) {
+    this.loadToken += 1;
+    this.setContent(object3D, options);
+  }
+
   setContent(content, { name = "model", initialHeightMm = null } = {}) {
     this.removeCurrent();
     const bounds = new THREE.Box3().setFromObject(content);
